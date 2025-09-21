@@ -1,0 +1,335 @@
+{$I WaspLib/osrs.simba}
+
+//walker is inconsistent moving between field and bank, sometimes wants to open extra doors?
+//open bank and close bank being weird, deposit ok
+
+type EMonster = enum(COW);
+
+type
+  ECombatState = enum (
+    ATTACK, LOOT, BURY_BONES,
+
+    WALK_BANK, WALK_FIELD,
+
+    OPEN_BANK, DEPOSIT_BANK, CLOSE_BANK
+    );
+
+type EBankLocation = enum (
+        LUMBRIDGE
+        );
+
+ TCombat = record
+
+    Monster: EMonster;
+    BankLocation: EBankLocation;
+    MonsterEntity: TRSEntity;
+    BankObject, StaircaseObject: TRSObject;
+    Splats: TRSHitSplatArray;
+    LootSplat: TRSHitSplat;
+
+    Timer: TCountdown;
+    RunLength: UInt64;
+
+end;
+
+ procedure TCombat.init(MaxTime: UInt64);
+ begin
+  case self.Monster of
+    EMonster.COW:
+    begin
+      Map.Setup([Chunk(Box(49,52,50,50), [0])]);
+
+      self.MonsterEntity := TRSEntity.Create(@Map.Walker, [2,2,2], 50 ,[[8553, 37104],[8619, 37123],[8674, 37140]], ['Cow'], [ERSMinimapDot.NPC]);
+      self.MonsterEntity.Finder.Colors += [$253B43, 2.077, EColorSpace.HSV, [1.567, 0.589, 0.845]];
+      self.MonsterEntity.Finder.Colors += [$71859D, 0.765, EColorSpace.HSV, [1.726, 0.175, 1.101]];
+      self.MonsterEntity.Finder.Colors += [$4A5160, 1.233, EColorSpace.HSV, [2.047, 0.621, 0.334]];
+      self.MonsterEntity.Finder.Transformer.Grow := 3;
+      self.MonsterEntity.Finder.Transformer.Erode := 2;
+
+    end;
+  end;
+
+  case self.BankLocation of
+    EBankLocation.LUMBRIDGE:
+    begin
+      Map.Add([Chunk(Box(49,51,50,50), [1,2])]);
+
+      self.StaircaseObject := TRSObject.Create(@Map.Walker,[2,2,6],[[8724, 37512],[34836, 37512]], ['Staircase']);
+      self.StaircaseObject.Finder.Colors += [$073C52, 1.928, EColorSpace.HSV, [2.078, 0.533, 0.390]];
+      self.BankObject := TRSObject.Create(@Map.Walker,[1,1,2],[[34850, 37544]], ['Bank']);
+      self.BankObject.Finder.Colors += [$125D78, 0.973, EColorSpace.HSV, [1.356, 1.356, 0.289]];
+    end;
+  end;
+
+    Antiban.Zoom.Max := 50;
+    options.SetZoomLevel(50);
+    MainScreen.SetHighestPitch();
+
+    self.Timer.start(MaxTime*1000*60);
+
+ end;
+
+ function TCombat.SplatTimer(SearchTime:Uint64=4200): Boolean;
+  var
+   HitTimer: TCountDown;
+
+  begin
+    HitTimer.Start(SearchTime);
+
+    repeat
+      self.Splats := [];
+      TRSHitSplat.Find(self.Splats);
+      if Length(self.Splats) > 0 then
+        HitTimer.Restart();
+    until Result := HitTimer.IsFinished;
+
+  end;
+
+ function TCombat.Attack(): Boolean;
+ begin
+
+    if options.ZoomLevel <> 50 then
+      Options.SetZoomLevel(50);
+
+   self.MonsterEntity.Click();
+
+   SleepUntil(TRSHitsplat.Find(self.Splats),100,10000);
+
+   if Length(self.Splats) > 0 then
+    Self.LootSplat := self.Splats[0];
+
+   Result := self.SplatTimer();
+
+ end;
+
+ function TCombat.Looter(): Boolean;
+  var
+  i: Integer;
+  pts: TPointArray;
+  quad: TQuad;
+
+begin
+
+  pts := Minimap.GetDots(ERSMinimapDot.ITEM);
+  pts := pts.sortfrom(Mainscreen.Point2MM(self.LootSplat.Position,Map.Height())); // change to monster hit splat location, save last splat location and sort from there
+
+  for i := 0 to 1 do
+    begin
+      quad := minimap.point2msquad(pts[i],[0.5,0.5],Minimap.CompassRadians);
+      //ShowOnTarget(quad);
+      mouse.move(quad);
+
+      sleep(250,1000);
+
+      if MainScreen.IsUpText('Take Cowhide') then // change to array of whitelisted items
+        begin
+        Mouse.Click(EMouseButton.LEFT);
+        MainScreen.WaitRedClick();
+        sleep(750,2000);
+        end
+      else
+        Continue;
+
+      Mouse.Move([260,178]);
+      sleep(500,1500);
+
+
+      if MainScreen.IsUpText('Take Bones') then // change to array of whitelisted items
+        begin
+        Mouse.Click(EMouseButton.LEFT);
+        MainScreen.WaitRedClick();
+        sleep(750,1000);
+        break;
+        end
+      else
+        Continue;
+
+      if length(pts) < 2 then
+        break;
+
+    end;
+
+    self.LootSplat := [];
+end;
+
+function TCombat.BuryBones(): Boolean;
+begin
+
+if Inventory.Items.Contains('Bones') then
+  begin
+    repeat
+      begin
+      Inventory.Items.Click('Bones');
+      sleep(1300,3000);
+      end;
+    until not Inventory.Items.Contains('Bones');
+  end;
+
+end;
+
+procedure TCombat.WalkBank();
+begin
+  //Map.Walker.WebWalk([8774, 37555],20,0);
+  //sleep(1500,3000);
+  //self.StaircaseObject.walkInteract(['Top']);
+  //SleepUntil(map.Position.AnyInRange(self.BankObject.Coordinates,20),300,20000);
+  if not Map.Position.AnyInRange(Self.StaircaseObject.Coordinates,100) then
+    begin
+      repeat
+        writeln 'moving close to stairs';
+        Map.Walker.WebWalk([8774, 37555],20,0); // front of lumbridge castle
+        SleepUntil(Map.Position.AnyInRange(self.StaircaseObject.Coordinates,100),300,20000);
+      until Map.Position.AnyInRange(Self.StaircaseObject.Coordinates,100);
+    end;
+
+  if not Map.Position.AnyInRange(Self.BankObject.Coordinates,50) then
+    Begin
+      repeat
+        writeln 'going upstairs';
+        Map.Walker.WebWalk([8731, 37519],20,0);
+        self.StaircaseObject.Interact(['Top']);
+        SleepUntil(Map.Position.AnyInRange(self.BankObject.Coordinates,50),300,20000);
+      until Map.Position.AnyInRange(Self.BankObject.Coordinates,50);
+    end;
+
+  if not Map.Position.AnyInRange(Self.BankObject.Coordinates,10) then
+    Begin
+      repeat
+        writeln 'going upstairs';
+        Map.Walker.WebWalk([34851, 37552],10,0);
+        SleepUntil(Map.Position.AnyInRange(self.BankObject.Coordinates,10),300,20000);
+      until Map.Position.AnyInRange(Self.BankObject.Coordinates,10);
+    end;
+
+end;
+
+procedure Tcombat.WalkField();
+begin
+  //Map.Walker.Webwalk([34841, 37520],5,0);
+  //sleep(1500,3000);
+  //self.StaircaseObject.WalkInteract(['Bottom']);
+  //SleepUntil(map.Position.InRange([8730, 37518],20),300,20000);
+  //sleep(1000,2000);
+  //Map.Walker.WebWalk([8716, 37270],20,1);
+  //self.MonsterEntity.Walkclick();
+
+  if not Map.Position.InRange([8774, 37555],50) then
+    begin
+      repeat
+        writeln 'going downstairs';
+        Map.Walker.WebWalk([34840, 37518],10,0);
+        self.StaircaseObject.Interact(['Bottom']);
+        SleepUntil(Map.Position.InRange([8774, 37555],100),300,20000);
+      until Map.Position.InRange([8774, 37555],100);
+    end;
+
+  if not Map.Position.AnyInRange(self.MonsterEntity.Coordinates,50) then
+    begin
+      repeat
+        writeln 'going to field';
+        Map.Walker.WebWalk(self.MonsterEntity.Coordinates,20,0);
+        SleepUntil(Map.Position.AnyInRange(self.MonsterEntity.Coordinates,20),300,20000);
+      until Map.Position.AnyInRange(self.MonsterEntity.Coordinates,20);
+    end;
+
+end;
+
+procedure TCombat.OpenBank();
+begin
+  self.BankObject.Click();
+  sleepuntil(Bank.IsOpen(),500,20000);
+  sleep(500,3000);
+end;
+
+procedure TCombat.CloseBank();
+begin
+  Bank.Close(50);
+  Sleep(500, 1500);
+
+end;
+
+procedure TCombat.DepositAll();
+begin
+  Bank.DynamicButtons[ERSBankDynamicButtons.DEPOSIT_INVENTORY].Click();
+  SleepUntil(Inventory.Slots.Count() = 0,100,10000);
+  Sleep(1000, 2000);
+end;
+
+function TCombat.GetState(): ECombatState;
+begin
+
+  if not Inventory.IsOpen() then
+    Inventory.Open();
+
+  If Inventory.IsFull() and Inventory.Items.ContainsAny(['Bones']) then
+    Exit(EcombatState.BURY_BONES);
+
+  If not Bank.IsOpen and Inventory.IsFull() and Map.Position.AnyInRange(self.BankObject.Coordinates,50) then
+  Exit(EcombatState.OPEN_BANK);
+
+  If Bank.IsOpen then
+    If Inventory.IsFull() then
+      Exit(EcombatState.DEPOSIT_BANK)
+    else
+      Exit(EcombatState.CLOSE_BANK);
+
+  if Inventory.IsFull() and not Map.Position.AnyInRange(self.BankObject.Coordinates,50) then
+    Exit(EcombatState.WALK_BANK);
+
+  if not Inventory.IsFull() and not Map.Position.AnyInRange(self.MonsterEntity.Coordinates,100) then
+    Exit(EcombatState.WALK_FIELD);
+
+  if self.LootSplat.Position.X > 0 then
+    Exit(EcombatState.LOOT);
+
+  if not Inventory.IsFull() and Map.Position.AnyInRange(self.MonsterEntity.Coordinates,50) then
+    Exit(ECombatState.ATTACK);
+
+
+
+end;
+
+
+procedure TCombat.Run();
+ var
+  state: ECombatState;
+  begin
+
+    self.init(4600);
+
+    //map.Debug();
+    //showontarget(self.MonsterEntity);
+
+    while self.Timer.remaining > 0 do
+      begin
+        state := self.GetState();
+        writeln('we doing ', state);
+
+        case state of
+          ECombatState.ATTACK: self.Attack();
+          ECombatState.LOOT: self.Looter();
+          ECombatState.BURY_BONES: self.BuryBones();
+
+          ECombatState.OPEN_BANK: self.OpenBank();
+          ECombatState.CLOSE_BANK: self.CloseBank;
+          ECombatState.DEPOSIT_BANK: self.DepositAll;
+
+          ECombatState.WALK_BANK: self.WalkBank();
+          ECombatState.WALK_FIELD: self.WalkField();
+        end;
+
+      end;
+
+end;
+
+
+ var
+  Combat2: Tcombat;
+
+ begin
+
+ Combat2.run();
+ //Combat2.init(300000);
+ //combat2.openbank();
+
+ end.
