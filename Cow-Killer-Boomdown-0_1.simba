@@ -1,7 +1,8 @@
 {$I WaspLib/osrs.simba}
 
 //walker is inconsistent moving between field and bank, sometimes wants to open extra doors?
-//open bank and close bank being weird, deposit ok
+// watch out for milking cow
+// try south lumbridge staircase?
 
 type EMonster = enum(COW);
 
@@ -40,9 +41,9 @@ end;
       Map.Setup([Chunk(Box(49,52,50,50), [0])]);
 
       self.MonsterEntity := TRSEntity.Create(@Map.Walker, [2,2,2], 50 ,[[8553, 37104],[8619, 37123],[8674, 37140]], ['Cow'], [ERSMinimapDot.NPC]);
-      self.MonsterEntity.Finder.Colors += [$253B43, 2.077, EColorSpace.HSV, [1.567, 0.589, 0.845]];
-      self.MonsterEntity.Finder.Colors += [$71859D, 0.765, EColorSpace.HSV, [1.726, 0.175, 1.101]];
-      self.MonsterEntity.Finder.Colors += [$4A5160, 1.233, EColorSpace.HSV, [2.047, 0.621, 0.334]];
+      self.MonsterEntity.Finder.Colors += [$59606D, 0.987, EColorSpace.HSV, [1.219, 1.523, 0.259]];
+      self.MonsterEntity.Finder.Colors += [$9FA5AA, 0.795, EColorSpace.HSV, [1.039, 1.700, 0.263]];
+      self.MonsterEntity.Finder.Colors += [$798492, 0.624, EColorSpace.HSV, [1.338, 1.338, 0.325]];
       self.MonsterEntity.Finder.Transformer.Grow := 3;
       self.MonsterEntity.Finder.Transformer.Erode := 2;
 
@@ -54,9 +55,9 @@ end;
     begin
       Map.Add([Chunk(Box(49,51,50,50), [1,2])]);
 
-      self.StaircaseObject := TRSObject.Create(@Map.Walker,[2,2,6],[[8724, 37512],[34836, 37512]], ['Staircase']);
+      self.StaircaseObject := TRSObject.Create(@Map.Walker,[2,2,6],[[8724, 37599],[34836, 37598]], ['Staircase']);
       self.StaircaseObject.Finder.Colors += [$073C52, 1.928, EColorSpace.HSV, [2.078, 0.533, 0.390]];
-      self.BankObject := TRSObject.Create(@Map.Walker,[1,1,2],[[34850, 37544]], ['Bank']);
+      self.BankObject := TRSObject.Create(@Map.Walker,[1,1,2],[[34850, 37548]], ['Bank']);
       self.BankObject.Finder.Colors += [$125D78, 0.973, EColorSpace.HSV, [1.356, 1.356, 0.289]];
     end;
   end;
@@ -65,7 +66,7 @@ end;
     options.SetZoomLevel(50);
     MainScreen.SetHighestPitch();
 
-    self.Timer.start(MaxTime*1000*60);
+    self.Timer.start(MaxTime*ONE_MINUTE);
 
  end;
 
@@ -169,33 +170,31 @@ end;
 
 procedure TCombat.WalkBank();
 begin
-  //Map.Walker.WebWalk([8774, 37555],20,0);
-  //sleep(1500,3000);
-  //self.StaircaseObject.walkInteract(['Top']);
-  //SleepUntil(map.Position.AnyInRange(self.BankObject.Coordinates,20),300,20000);
+
   if not Map.Position.AnyInRange(Self.StaircaseObject.Coordinates,100) then
     begin
       repeat
         writeln 'moving close to stairs';
-        Map.Walker.WebWalk([8774, 37555],20,0); // front of lumbridge castle
+        Map.Walker.WebWalk([8802, 37560],10,0); // front of lumbridge castle
         SleepUntil(Map.Position.AnyInRange(self.StaircaseObject.Coordinates,100),300,20000);
       until Map.Position.AnyInRange(Self.StaircaseObject.Coordinates,100);
     end;
 
-  if not Map.Position.AnyInRange(Self.BankObject.Coordinates,50) then
+  if not Map.Position.AnyInRange(Self.BankObject.Coordinates,100) then
     Begin
       repeat
         writeln 'going upstairs';
-        Map.Walker.WebWalk([8731, 37519],20,0);
+        Map.Walker.WebWalk([8730, 37592],10,0);
+        sleep(1000,2000);
         self.StaircaseObject.Interact(['Top']);
-        SleepUntil(Map.Position.AnyInRange(self.BankObject.Coordinates,50),300,20000);
-      until Map.Position.AnyInRange(Self.BankObject.Coordinates,50);
+        SleepUntil(Map.Position.AnyInRange(self.BankObject.Coordinates,100),300,20000);
+      until Map.Position.AnyInRange(Self.BankObject.Coordinates,100);
     end;
 
   if not Map.Position.AnyInRange(Self.BankObject.Coordinates,10) then
     Begin
       repeat
-        writeln 'going upstairs';
+        writeln 'moving to bank';
         Map.Walker.WebWalk([34851, 37552],10,0);
         SleepUntil(Map.Position.AnyInRange(self.BankObject.Coordinates,10),300,20000);
       until Map.Position.AnyInRange(Self.BankObject.Coordinates,10);
@@ -205,19 +204,13 @@ end;
 
 procedure Tcombat.WalkField();
 begin
-  //Map.Walker.Webwalk([34841, 37520],5,0);
-  //sleep(1500,3000);
-  //self.StaircaseObject.WalkInteract(['Bottom']);
-  //SleepUntil(map.Position.InRange([8730, 37518],20),300,20000);
-  //sleep(1000,2000);
-  //Map.Walker.WebWalk([8716, 37270],20,1);
-  //self.MonsterEntity.Walkclick();
 
-  if not Map.Position.InRange([8774, 37555],50) then
+  if not Map.Position.InRange([8774, 37555],50) and not Map.Position.AnyInRange(self.MonsterEntity.Coordinates,200) then
     begin
       repeat
         writeln 'going downstairs';
-        Map.Walker.WebWalk([34840, 37518],10,0);
+        Map.Walker.WebWalk([34839, 37589],10,0);
+        sleep(1000,2000);
         self.StaircaseObject.Interact(['Bottom']);
         SleepUntil(Map.Position.InRange([8774, 37555],100),300,20000);
       until Map.Position.InRange([8774, 37555],100);
@@ -295,10 +288,10 @@ procedure TCombat.Run();
   state: ECombatState;
   begin
 
-    self.init(4600);
+    self.init(180);
 
+    //showontarget(self.BankObject);
     //map.Debug();
-    //showontarget(self.MonsterEntity);
 
     while self.Timer.remaining > 0 do
       begin
