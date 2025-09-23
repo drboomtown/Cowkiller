@@ -1,8 +1,7 @@
 {$I WaspLib/osrs.simba}
 
-//walker is inconsistent moving between field and bank, sometimes wants to open extra doors?
-// watch out for milking cow
-// try south lumbridge staircase?
+
+
 
 type EMonster = enum(COW);
 
@@ -40,7 +39,7 @@ end;
     begin
       Map.Setup([Chunk(Box(49,52,50,50), [0])]);
 
-      self.MonsterEntity := TRSEntity.Create(@Map.Walker, [2,2,2], 50 ,[[8553, 37104],[8619, 37123],[8674, 37140]], ['Cow'], [ERSMinimapDot.NPC]);
+      self.MonsterEntity := TRSEntity.Create(@Map.Walker, [2,2,2], 50 ,[[8553, 37104],[8619, 37110],[8674, 37140]], ['Cow'], [ERSMinimapDot.NPC]);
       self.MonsterEntity.Finder.Colors += [$59606D, 0.987, EColorSpace.HSV, [1.219, 1.523, 0.259]];
       self.MonsterEntity.Finder.Colors += [$9FA5AA, 0.795, EColorSpace.HSV, [1.039, 1.700, 0.263]];
       self.MonsterEntity.Finder.Colors += [$798492, 0.624, EColorSpace.HSV, [1.338, 1.338, 0.325]];
@@ -57,11 +56,12 @@ end;
 
       self.StaircaseObject := TRSObject.Create(@Map.Walker,[2,2,6],[[8724, 37599],[34836, 37598]], ['Staircase']);
       self.StaircaseObject.Finder.Colors += [$073C52, 1.928, EColorSpace.HSV, [2.078, 0.533, 0.390]];
-      self.BankObject := TRSObject.Create(@Map.Walker,[1,1,2],[[34850, 37548]], ['Bank']);
+      self.BankObject := TRSObject.Create(@Map.Walker,[1,1,1],[[34848, 37546]], ['Bank']);
       self.BankObject.Finder.Colors += [$125D78, 0.973, EColorSpace.HSV, [1.356, 1.356, 0.289]];
     end;
   end;
 
+    Map.Loader.Graph.BlockArea([8804, 37454, 8844, 37490], True);
     Antiban.Zoom.Max := 50;
     options.SetZoomLevel(50);
     MainScreen.SetHighestPitch();
@@ -205,7 +205,8 @@ end;
 procedure Tcombat.WalkField();
 begin
 
-  if not Map.Position.InRange([8774, 37555],50) and not Map.Position.AnyInRange(self.MonsterEntity.Coordinates,200) then
+  //if not Map.Position.InRange([8774, 37555],50) and not Map.Position.AnyInRange(self.MonsterEntity.Coordinates,200) then
+  if Map.Position.InRange([34850, 37548],100) then
     begin
       repeat
         writeln 'going downstairs';
@@ -317,12 +318,17 @@ end;
 
 
  var
-  Combat2: Tcombat;
+  MyCombat: Tcombat;
 
  begin
 
- Combat2.run();
- //Combat2.init(300000);
- //combat2.openbank();
+ MyCombat.run();
+
+ //MyCombat.init(50);
+ //while true do
+ // showontarget(MyCombat.MonsterEntity);
+// map.debug();
+ //MyCombat.WalkField();
+ //MyCombat.WalkBank();
 
  end.
