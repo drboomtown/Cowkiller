@@ -7,6 +7,7 @@ type EMonster = enum(COW);
 
 type
   ECombatState = enum (
+
     ATTACK, LOOT, BURY_BONES,
 
     WALK_BANK, WALK_FIELD,
@@ -39,7 +40,10 @@ end;
     begin
       Map.Setup([Chunk(Box(49,52,50,50), [0])]);
 
-      self.MonsterEntity := TRSEntity.Create(@Map.Walker, [2,2,2], 50 ,[[8553, 37104],[8619, 37110],[8674, 37140]], ['Cow'], [ERSMinimapDot.NPC]);
+      //self.MonsterEntity := TRSEntity.create(NPCsJSON.GetByName('Cow', 1).Item[0]);
+      //writeln self.MonsterEntity;
+
+      self.MonsterEntity := TRSEntity.Create(@Map.Walker, [1.6,1.6,3.75], 50 ,[[8553, 37104],[8619, 37110],[8674, 37140]], ['Cow'], [ERSMinimapDot.NPC]);
       self.MonsterEntity.Finder.Colors += [$59606D, 0.987, EColorSpace.HSV, [1.219, 1.523, 0.259]];
       self.MonsterEntity.Finder.Colors += [$9FA5AA, 0.795, EColorSpace.HSV, [1.039, 1.700, 0.263]];
       self.MonsterEntity.Finder.Colors += [$798492, 0.624, EColorSpace.HSV, [1.338, 1.338, 0.325]];
@@ -61,7 +65,7 @@ end;
     end;
   end;
 
-    Map.Loader.Graph.BlockArea([8804, 37454, 8844, 37490], True);
+    //Map.Loader.Graph.BlockArea([8804, 37454, 8844, 37490], True);  //lumbridge pub
     Antiban.Zoom.Max := 50;
     options.SetZoomLevel(50);
     MainScreen.SetHighestPitch();
@@ -89,17 +93,16 @@ end;
  function TCombat.Attack(): Boolean;
  begin
 
-    if options.ZoomLevel <> 50 then
-      Options.SetZoomLevel(50);
+  if options.ZoomLevel <> 50 then
+    Options.SetZoomLevel(50);
 
-   self.MonsterEntity.Click();
+  if self.MonsterEntity.Click() then
+    SleepUntil(TRSHitsplat.Find(self.Splats),100,10000);
 
-   SleepUntil(TRSHitsplat.Find(self.Splats),100,10000);
-
-   if Length(self.Splats) > 0 then
+  if Length(self.Splats) > 0 then
     Self.LootSplat := self.Splats[0];
 
-   Result := self.SplatTimer();
+  Result := self.SplatTimer();
 
  end;
 
@@ -110,9 +113,17 @@ end;
   quad: TQuad;
 
 begin
-
   pts := Minimap.GetDots(ERSMinimapDot.ITEM);
-  pts := pts.sortfrom(Mainscreen.Point2MM(self.LootSplat.Position,Map.Height())); // change to monster hit splat location, save last splat location and sort from there
+
+  if length(pts) = 0 then
+    begin
+      writeln('loot dots found = ', pts);
+      exit(True);
+    end;
+
+  pts := pts.sortfrom(Mainscreen.Point2MM(self.LootSplat.Position,Map.Height()));
+
+
 
   for i := 0 to 1 do
     begin
@@ -122,7 +133,7 @@ begin
 
       sleep(250,1000);
 
-      if MainScreen.IsUpText('Take Cowhide') then // change to array of whitelisted items
+      if MainScreen.IsUpText(['Take Cowhide','Take Bones']) then // change to array of whitelisted items
         begin
         Mouse.Click(EMouseButton.LEFT);
         MainScreen.WaitRedClick();
@@ -135,7 +146,7 @@ begin
       sleep(500,1500);
 
 
-      if MainScreen.IsUpText('Take Bones') then // change to array of whitelisted items
+      if MainScreen.IsUpText(['Take Cowhide','Take Bones']) then // change to array of whitelisted items
         begin
         Mouse.Click(EMouseButton.LEFT);
         MainScreen.WaitRedClick();
@@ -171,34 +182,43 @@ end;
 procedure TCombat.WalkBank();
 begin
 
-  if not Map.Position.AnyInRange(Self.StaircaseObject.Coordinates,100) then
+  if not Map.Position.InRange([8608, 37178],4) then
     begin
       repeat
-        writeln 'moving close to stairs';
-        Map.Walker.WebWalk([8802, 37560],10,0); // front of lumbridge castle
-        SleepUntil(Map.Position.AnyInRange(self.StaircaseObject.Coordinates,100),300,20000);
-      until Map.Position.AnyInRange(Self.StaircaseObject.Coordinates,100);
+        writeln 'moving through gate';
+        Map.Walker.WebWalk([8608, 37178],1,0); // just south of cow field gate
+      until Map.Position.InRange([8608, 37178],4);
     end;
+
+
+  //if not Map.Position.AnyInRange(Self.StaircaseObject.Coordinates,100) then
+  //  begin
+  //    repeat
+  //      writeln 'moving close to stairs';
+  //      Map.Walker.WebWalk([8802, 37560],10,0); // front of lumbridge castle
+  //      //SleepUntil(Map.Position.AnyInRange(self.StaircaseObject.Coordinates,100),300,20000);
+  //    until Map.Position.AnyInRange(Self.StaircaseObject.Coordinates,100);
+  //  end;
 
   if not Map.Position.AnyInRange(Self.BankObject.Coordinates,100) then
     Begin
       repeat
         writeln 'going upstairs';
-        Map.Walker.WebWalk([8730, 37592],10,0);
-        sleep(1000,2000);
-        self.StaircaseObject.Interact(['Top']);
+        //Map.Walker.WebWalk([8730, 37592],10,0);
+        //sleep(1000,2000);
+        self.StaircaseObject.WalkInteract(['Top']);
         SleepUntil(Map.Position.AnyInRange(self.BankObject.Coordinates,100),300,20000);
       until Map.Position.AnyInRange(Self.BankObject.Coordinates,100);
     end;
 
-  if not Map.Position.AnyInRange(Self.BankObject.Coordinates,10) then
-    Begin
-      repeat
-        writeln 'moving to bank';
-        Map.Walker.WebWalk([34851, 37552],10,0);
-        SleepUntil(Map.Position.AnyInRange(self.BankObject.Coordinates,10),300,20000);
-      until Map.Position.AnyInRange(Self.BankObject.Coordinates,10);
-    end;
+  //if not Map.Position.AnyInRange(Self.BankObject.Coordinates,10) then
+  //  Begin
+  //    repeat
+  //      writeln 'moving to bank';
+  //      Map.Walker.WebWalk([34851, 37552],10,0);
+  //      SleepUntil(Map.Position.AnyInRange(self.BankObject.Coordinates,10),300,20000);
+  //    until Map.Position.AnyInRange(Self.BankObject.Coordinates,10);
+  //  end;
 
 end;
 
@@ -210,9 +230,9 @@ begin
     begin
       repeat
         writeln 'going downstairs';
-        Map.Walker.WebWalk([34839, 37589],10,0);
-        sleep(1000,2000);
-        self.StaircaseObject.Interact(['Bottom']);
+        //Map.Walker.WebWalk([34839, 37589],10,0);
+        //sleep(1000,2000);
+        self.StaircaseObject.WalkInteract(['Bottom']);
         SleepUntil(Map.Position.InRange([8774, 37555],100),300,20000);
       until Map.Position.InRange([8774, 37555],100);
     end;
@@ -230,7 +250,8 @@ end;
 
 procedure TCombat.OpenBank();
 begin
-  self.BankObject.Click();
+  Bank.Open(self.bankObject);
+  //self.BankObject.Click();
   sleepuntil(Bank.IsOpen(),500,20000);
   sleep(500,3000);
 end;
@@ -250,7 +271,23 @@ begin
 end;
 
 function TCombat.GetState(): ECombatState;
+
+var
+selected: Int64;
+selBox: Tbox;
+
 begin
+
+  selected := Inventory.GetSelected();
+  if selected > -1 then
+  begin
+    writeln('it happened again boss, slot= ', selected);
+    Inventory.Select(selected);
+    selBox := Inventory.slots.box(selected);
+    mouse.click(selbox, EMouseButton.LEFT);
+    sleepuntil(not Inventory.IsSelected(selected), 100, 10000);
+    sleep(500,1500);
+  end;
 
   if not Inventory.IsOpen() then
     Inventory.Open();
@@ -289,9 +326,9 @@ procedure TCombat.Run();
   state: ECombatState;
   begin
 
-    self.init(180);
+    self.init(360);// time in minutes
 
-    //showontarget(self.BankObject);
+    //showontarget(self.StaircaseObject);
     //map.Debug();
 
     while self.Timer.remaining > 0 do
@@ -300,11 +337,13 @@ procedure TCombat.Run();
         writeln('we doing ', state);
 
         case state of
+
           ECombatState.ATTACK: self.Attack();
           ECombatState.LOOT: self.Looter();
           ECombatState.BURY_BONES: self.BuryBones();
 
-          ECombatState.OPEN_BANK: self.OpenBank();
+          //ECombatState.OPEN_BANK: self.OpenBank();
+          ECombatState.OPEN_BANK: Bank.Open(self.bankObject);
           ECombatState.CLOSE_BANK: self.CloseBank;
           ECombatState.DEPOSIT_BANK: self.DepositAll;
 
