@@ -1,0 +1,571 @@
+{$I WaspLib/osrs.simba}
+
+//TODO
+//something about accidentaly going to middle floor in castle
+//Form
+//try jsons?
+
+type EMonster = enum(COW);
+
+type
+  ECombatState = enum (
+
+    ATTACK, SEEK, LOOT, BURY_BONES,
+
+    WALK_BANK, WALK_FIELD,
+
+    OPEN_BANK, DEPOSIT_BANK, CLOSE_BANK,
+
+    LOGIN
+    );
+
+type EBankLocation = enum (
+        LUMBRIDGE
+        );
+
+ TCombat = record
+
+    Monster: EMonster;
+    BankLocation: EBankLocation;
+    MonsterEntity: TRSEntity;
+    BankObject, StaircaseObject: TRSObject;
+    LootSplat: TRSHitSplat;
+    LootArray: TStringArray;
+    Seeking, LootEn, BuryEn: Boolean;
+
+    Timer: TCountdown;
+    RunLength: UInt64;
+
+end;
+
+ procedure TCombat.init(MaxTime: UInt64);
+ begin
+  case self.Monster of
+    EMonster.COW:
+    begin
+      Map.Setup([Chunk(Box(49,52,50,50), [0])]);
+
+      //self.MonsterEntity := TRSEntity.create(NPCsJSON.GetByName('Cow', 1).Item[0]);
+      //writeln self.MonsterEntity;
+
+      self.MonsterEntity := TRSEntity.Create(@Map.Walker, [1.6,1.6,3.75], 50 ,[[8553, 37104],[8619, 37110],[8674, 37140]], ['Cow'], [ERSMinimapDot.NPC]);
+      self.MonsterEntity.Finder.Colors += [$454C5A, 0.828, EColorSpace.HSV, [2.354, 0.444, 0.204]];
+      self.MonsterEntity.Finder.Colors += [$6A7C92, 0.663, EColorSpace.HSV, [2.449, 0.247, 0.305]];
+      self.MonsterEntity.Finder.Colors += [$314750, 2.155, EColorSpace.HSV, [2.018, 0.450, 0.534]];
+      self.MonsterEntity.Finder.Transformer.Grow := 3;
+      self.MonsterEntity.Finder.Transformer.Erode := 2;
+
+    end;
+  end;
+
+  case self.BankLocation of
+    EBankLocation.LUMBRIDGE:
+    begin
+      Map.Add([Chunk(Box(49,51,50,50), [1,2])]);
+
+      self.StaircaseObject := TRSObject.Create(@Map.Walker,[2,2,6],[[8722, 37599],[34836, 37598]], ['Staircase']);
+      self.StaircaseObject.Finder.Colors += [$073C52, 1.928, EColorSpace.HSV, [2.078, 0.533, 0.390]];
+      self.BankObject := TRSObject.Create(@Map.Walker,[2,1,2],[[34850, 37546]], ['Bank']);
+      self.BankObject.Finder.Colors += [$125D78, 0.973, EColorSpace.HSV, [1.356, 1.356, 0.289]];
+    end;
+  end;
+
+    Antiban.Zoom.Min := 40;
+    Antiban.Zoom.Max := 60;
+    Antiban.Skills := [ERSSkill.ATTACK, ERSSkill.DEFENCE, ERSSkill.STRENGTH, ERSSkill.TOTAL];
+
+    self.Timer.start(MaxTime*ONE_HOUR);
+
+ end;
+
+ function TCombat.SplatTimer(SearchTime:Uint64=2600): Boolean;
+ // starts a timer starting from last found splat, reseting if it finds another and indicates combat has ended if the timer finishes
+  var
+   HitTimer: TCountDown;
+   splats: TRSHitSplatArray;
+   splat: TRSHitSplat;
+   PBox: TBox;
+
+   XMod: Int32 := Mainscreen.NormalizeDistance(6);
+   YMod: Int32 := Mainscreen.NormalizeDistance(10);
+
+  begin
+    HitTimer.Start(SearchTime);// start timer
+    PBox := MainScreen.PlayerBox;
+    PBox := [PBox.x1+XMod, PBox.y1+Ymod, PBox.x2-XMod, PBox.y2-Ymod];
+
+
+    repeat
+      Splats := []; // clear splats array
+      TRSHitSplat.Find(Splats); // finds all visible hit splats and stores them in Splats
+      if Length(Splats) > 0 then
+        HitTimer.Restart(); // if more than 0 splats are found, reset timer
+
+
+      for splat in splats do
+        if not PBox.Contains(splat.Position) then
+            Self.LootSplat := splat;
+
+    until Result := HitTimer.IsFinished; // ends loop once timer ends and return True
+
+  end;
+
+function TCombat.AvailableCubiods(out Coordinates: TPointArray): TCuboidArray;
+//finds and filters entitys visible on main screen, Returns an array of entities with no HPbars and that are visible on the mainscreen
+var
+i: UInt16;
+
+Entities: TCuboidArray;
+Ebox: TBox;
+
+HPBar: TRSHPBar;
+HPBarA: TRSHPBarArray;
+
+Y1Mod: Int32 := Mainscreen.NormalizeDistance(10);
+Y2Mod: Int32 := Mainscreen.NormalizeDistance(15);
+
+begin
+  Entities := self.MonsterEntity.GetCuboidArray(map.Position(), Coordinates);
+  if length(Entities) < 1 then exit; // if no entities found exit
+
+  TRSHPBar.Find(HPBarA);
+
+  if Length(HPBarA) < 1 then
+    begin
+    for i := 0 to high(Entities) do
+      begin
+        Ebox := Entities[i].bounds;
+        if Mainscreen.bounds.overlap(Ebox) then // if Entity Tbox visible on mainscreen add to result array
+           Result += Entities[i];
+      end;
+    end
+  else
+    begin
+      for i := 0 to high(Entities) do
+        begin
+          Ebox := Entities[i].bounds; // convert cuboid to Tbox
+          EBox := [EBox.X1,EBox.Y1-Y1Mod,EBox.X2,EBox.Y2+Y2Mod]; // increase size of Tbox
+          Ebox := Ebox.Expand(0, MainScreen.Bounds); // keeps all Tbox parts inside visible mainscreen
+
+          for HpBar in HpBarA do
+            if HpBar.bounds.Overlap(Ebox) then continue(2); // if any HPbars overlap an Entity's Tbox skip to next Entity
+
+          Result += Entities[i]; // if no HPBars overlap and cubiod is showing on the main screen, add that entity to the list of results
+        end;
+    end;
+end;
+
+
+Function TCombat.FindEntityTPA(CuboidArray: TCuboidArray; coordinates: TPointArray): T2DPointArray;
+// takes input Cuboid array and uses the entity finder to search for colours displayed inside each cuboid
+var
+  i: Integer;
+  found: TBooleanArray;
+
+begin
+  if self.MonsterEntity.Finder <> Default(TColorFinder) then // checks if custom paramaters have been applied to the finder, uses set parameters if set
+    begin
+      self.MonsterEntity.Finder.FindEx(Result, found, cuboidArray); // Returns a TPA of the found colours, and a boolean array of if colours were or were not found in each particular cuboid
+
+      for i := High(found) downto 0 do
+        if not found[i] then
+          Delete(coordinates, i, 1); //modifies the coordinates array removing any listings where no colours were found
+
+      Exit;
+    end;
+
+    for i := 0 to High(cuboidArray) do
+      Result += cuboidArray[i].ShapeFill(); // if no custom parameters were found, fill up the entire cuboid and return that as a TPA
+end;
+
+function TCombat.FilterToMS(t2pa: T2DPointArray): T2DPointArray;
+//Takes input Array of TPA and removes any Tpoints outside of visible mainscreen
+var
+  tpa: TPointArray;
+
+begin
+  for tpa in t2pa do
+    begin
+       Result += tpa.ExtractBox(Mainscreen.bounds); //returns any points inside the mainscreen
+    end;
+
+end;
+
+Function TCombat.HoverClick(T2pa: T2DPointArray; attempts: UInt16 = 2): Boolean;
+//attempts to click a found TPA, checking against selected entities uptext and clicking if they match
+var
+  i: UInt16;
+begin
+attempts := Min(High(T2pa), attempts); // if less items in T2pa than in attempts, reduce attempts to match
+
+  for i := 0 to attempts do
+    begin
+      Mouse.Move(T2pa[i].RandomMean()); // move mouse to a roughly center point of current iteration TPA
+      if MainScreen.IsUpText(self.MonsterEntity.UpText) and Biometrics.RedClick(EMouseButton.LEFT, 2) then // checks the uptext of current mouse position, returns true if it matches entity uptext and clicks, returning true if a redclick is detected
+        Exit(True); //exit function returning true if both abouve parameters are true, moves onto next TPA if either return false
+    end;
+end;
+
+function TCombat.Attack(FilterMS: Boolean = False): Boolean;
+var
+  Cuboids: TCuboidArray;
+  T2pa: T2DPointArray;
+  coordinates: TPointArray;
+  splats: TRSHitSplatArray;
+
+begin
+
+  Cuboids := self.AvailableCubiods(coordinates);
+
+  T2pa := self.FindEntityTPA(Cuboids, coordinates);
+
+  if high(T2pa) < 1 then
+    begin
+      self.seeking := True;
+      exit(True);
+    end;
+
+  if FilterMS then
+    T2pa := self.FilterToMS(T2pa);
+
+  if self.HoverClick(T2pa, 2) then
+    SleepUntil(TRSHitsplat.Find(Splats),100,10000);
+
+  if Length(Splats) > 0 then
+    Self.LootSplat := Splats[0];
+
+  Result := self.SplatTimer();
+
+end;
+
+
+function TCombat.LootClick(): Boolean;
+// checks if the uptext matches any items in the LootAray and clicks on them if they match
+var
+NaughtyList: TIntegerArray;
+
+begin
+  if Inventory.IsFull() then // if the inventory is full finds any items in the inventory that arent in the lootarray and drops them
+    begin
+    NaughtyList := Inventory.Items.FindDifferent(self.LootArray);
+    Inventory.ShiftDrop(NaughtyList, Inventory.RandomPattern());
+    Exit(False);
+    end;
+
+  if MainScreen.IsUpText(self.LootArray) then // compares uptext to lootarray
+    begin
+    Biometrics.Sleep(250,500);
+    Mouse.Click(EMouseButton.LEFT);
+    Result := MainScreen.WaitRedClick();
+    end
+  else if MainScreen.IsUpText(['Take']) then // if no matches in loot array, checks if we are at least hovering a loot pile and checks right click options for items in the array
+    begin
+      Biometrics.Sleep(250,500);
+      Result := ChooseOption.Select(Self.LootArray);
+    end
+  else
+  begin
+    Result := False; // if no matches in loot array or not hovering a pile returns false
+  end;
+end;
+
+function TCombat.Looter(): Boolean;
+// attempts to search two nearby loot piles and pick up whitelisted items. first pile should be closeest to where the monster died and the second will be closest to the player after standing on the first pile
+var
+  i: Integer;
+  pts: TPointArray;
+  quad: TQuad;
+
+  PBox: TBox;
+  XMod: Int32 := Mainscreen.NormalizeDistance(6);
+  YMod: Int32 := Mainscreen.NormalizeDistance(32);
+
+begin
+  PBox := MainScreen.PlayerBox;
+  PBox := [PBox.x1+XMod, PBox.y1+Ymod, PBox.x2-XMod, PBox.y2]; // defines area at player characters feet
+
+  for i := 0 to 1 do
+    begin
+      pts := Minimap.GetDots(ERSMinimapDot.ITEM);
+
+      if (length(pts) = 0) then // if no piles found exit
+        begin
+          self.LootSplat := [];
+          exit(True);
+        end;
+
+      if i = 0 then
+        pts := pts.sortfrom(Mainscreen.Point2MM(self.LootSplat.Position,Map.Height())) // sort from lootsplat location
+      else
+        pts := pts.sortfrom(Mainscreen.PlayerBox.Center); // sort from player location on second loop
+
+      if (i = 1) and (length(pts) = 1) then // if on second loop only one pile found set i to 0 so we actually can mouse over it
+        i := 0;
+
+      quad := minimap.point2msquad(pts[i],[0.5,0.5],Minimap.CompassRadians); // convert minimap dot to quad on mainscreen
+
+      if MainScreen.Bounds.ContainsBox(quad.Bounds) then // if quad visible on mainscreen move mouse to it else go to next loop
+        mouse.move(quad)
+      else
+        continue;
+
+      if not self.LootClick() then // call loot click, if it returns false go to next loop
+        continue;
+
+      Biometrics.Sleep(1000,3000); // wait while walking to loot pile
+
+      Mouse.Move(PBox.RandomPointCenter); // move mouse to pile under feet
+
+      sleepuntil(not self.Lootclick(), Biometrics.RandomInteger(750), 20000); // repeatidly call loot click untill it returns false
+      //repeat
+      //  Biometrics.RandomInteger(750);
+      //until not self.Lootclick();
+
+    end;
+    self.LootSplat := []; // empty loot splat so we dont repeat this function endlessly
+end;
+
+function TCombat.SeekTargets(): Boolean;
+// move to a random point around the closest monster location
+var
+  RandT, closest: Tpoint;
+
+begin
+  self.Seeking := False;
+
+  closest := self.MonsterEntity.Coordinates.SortFrom(Map.Position())[0]; //define nearest monster location
+  RandT := TCircle.Create(closest.x, closest.y, 10).RandomPoint; //build a TPA circle and select a random point inside that circle
+
+  Result := Map.Walker.WebWalk(self.MonsterEntity.Coordinates, 20, 1); // walk to the generated point
+
+end;
+
+procedure TCombat.BuryBones();
+//buries all bones in inventory
+begin
+
+if Inventory.Items.Contains('Bones') then // check if any items in inventory are bones
+  begin
+    repeat
+      begin
+      Inventory.Items.Click('Bones'); // click first item found in inventory
+      Biometrics.sleep(1000,2500); // wait for bone to be buried
+      end;
+    until not Inventory.Items.Contains('Bones'); // exits loop when no more bones found
+  end;
+end;
+
+procedure TCombat.WalkBank();
+begin
+
+  if Map.Position.AnyInRange(self.MonsterEntity.Coordinates,50) then
+    begin
+      repeat
+        Map.Walker.WebWalk([8608, 37178],1,0); // just south of cow field gate
+      until Map.Position.InRange([8608, 37178],4);
+    end;
+
+  if not Map.Position.AnyInRange(Self.BankObject.Coordinates,100) then
+    Begin
+      repeat
+        self.StaircaseObject.WalkInteract(['Top']);
+        SleepUntil(Map.Position.AnyInRange(self.BankObject.Coordinates,100),300,20000);
+      until Map.Position.AnyInRange(Self.BankObject.Coordinates,100);
+    end;
+end;
+
+procedure Tcombat.WalkField();
+begin
+
+  //if not Map.Position.InRange([8774, 37555],50) and not Map.Position.AnyInRange(self.MonsterEntity.Coordinates,200) then
+  if Map.Position.InRange([34850, 37548],100) then
+    begin
+      repeat
+        //writeln 'going downstairs';
+        Map.Walker.WebWalk([34839, 37589],10,0);
+        sleep(1000,2000);
+        self.StaircaseObject.Interact(['Bottom']);
+        SleepUntil(Map.Position.InRange([8774, 37555],100),300,20000);
+      until Map.Position.InRange([8774, 37555],100);
+    end;
+
+  if not Map.Position.AnyInRange(self.MonsterEntity.Coordinates,50) then
+    begin
+      repeat
+        //writeln 'going to field';
+        Map.Walker.WebWalk(self.MonsterEntity.Coordinates,20,0);
+        SleepUntil(Map.Position.AnyInRange(self.MonsterEntity.Coordinates,20),300,20000);
+      until Map.Position.AnyInRange(self.MonsterEntity.Coordinates,20);
+    end;
+end;
+
+procedure TCombat.OpenBank();
+begin
+  Bank.Open(self.bankObject);
+  //self.BankObject.Click();
+  sleepuntil(Bank.IsOpen(),500,20000);
+
+  Biometrics.sleep(1000,5000);
+end;
+
+procedure TCombat.CloseBank();
+begin
+  Bank.Close(50);
+  Biometrics.sleep(500,3000);
+
+end;
+
+procedure TCombat.DepositAll();
+begin
+  Bank.DynamicButtons[ERSBankDynamicButtons.DEPOSIT_INVENTORY].Click();
+  SleepUntil(Inventory.Slots.Count() = 0,100,10000);
+  Biometrics.sleep(1000,5000);
+end;
+
+function TCombat.GetState(): ECombatState;
+begin
+
+  if not RSClient.IsLoggedIn() then
+    Exit(ECombatState.LOGIN);
+
+
+  if self.Seeking then
+    Exit(ECombatState.SEEK);
+
+  Inventory.Open();
+
+  If self.BuryEn and Inventory.IsFull() and Inventory.Items.ContainsAny(['Bones']) then
+    Exit(EcombatState.BURY_BONES);
+
+  If not Bank.IsOpen and Inventory.IsFull() and Map.Position.AnyInRange(self.BankObject.Coordinates,50) then
+  Exit(EcombatState.OPEN_BANK);
+
+  If Bank.IsOpen then
+    If Inventory.IsFull() then
+      Exit(EcombatState.DEPOSIT_BANK)
+    else
+      Exit(EcombatState.CLOSE_BANK);
+
+  if Inventory.IsFull() and not Map.Position.AnyInRange(self.BankObject.Coordinates,50) then
+    Exit(EcombatState.WALK_BANK);
+
+  if not Inventory.IsFull() and not Map.Position.AnyInRange(self.MonsterEntity.Coordinates,100) then
+    Exit(EcombatState.WALK_FIELD);
+
+  if self.LootEn and (self.LootSplat.Position.X > 0) then
+    Exit(EcombatState.LOOT);
+
+  if not Inventory.IsFull() and Map.Position.AnyInRange(self.MonsterEntity.Coordinates,100) then
+    Exit(ECombatState.ATTACK);
+
+end;
+
+
+procedure TCombat.Run();
+ var
+  state: ECombatState;
+  begin
+
+    self.init(self.RunLength);
+
+    while self.Timer.remaining > 0 do
+      begin
+        state := self.GetState();
+        writeln GetDebugLn(ToString(state));
+
+        case state of
+          ECombatState.LOGIN: Login.DoLogin();
+
+          ECombatState.ATTACK: self.Attack();
+          ECombatState.SEEK: self.SeekTargets();
+          ECombatState.LOOT: self.Looter();
+          ECombatState.BURY_BONES: self.BuryBones();
+
+          ECombatState.OPEN_BANK: Bank.Open(self.bankObject);
+          ECombatState.CLOSE_BANK: self.CloseBank;
+          ECombatState.DEPOSIT_BANK: self.DepositAll;
+
+          ECombatState.WALK_BANK: self.WalkBank();
+          ECombatState.WALK_FIELD: self.WalkField();
+        end;
+
+        Antiban.DoAntiban();
+
+      end;
+end;
+
+
+var
+  MyCombat: Tcombat;
+  form: TScriptForm;
+
+  LocationComboBox, MonsterComboBox: TLazComboBox;
+  RunTimeSpinner: TLazSpinEdit;
+  LootEnCheckBox, BuryEnBox: TLazCheckBox;
+  LootListBox: TLazEdit;
+
+procedure TScriptForm.OnStart(sender: TLazObject); override;
+
+begin
+  inherited;
+  MyCombat.BankLocation := EBankLocation(LocationCombobox.ItemIndex);
+
+  MyCombat.Monster := EMonster(MonsterComboBox.ItemIndex);
+
+  MyCombat.RunLength := RunTimeSpinner.Value;
+
+  MyCombat.LootEn := LootEnCheckBox.Enabled;
+
+  MyCombat.BuryEn := BuryEnBox.Enabled;
+
+  MyCombat.LootArray := LootListBox.Text.Split(',');
+
+end;
+
+procedure TScriptForm.Init();
+var
+  tab: TLazTabSheet;
+
+  begin
+    self.Setup();
+    tab := Self.CreateTab('Fight Club');
+
+    LocationComboBox := TLazComboBox.CreateEx(tab, 'Location:', 'Cooking location', 20, 100, 200);
+    for Low(EBankLocation) to High(EBankLocation) do
+      LocationCombobox.Items.Add(ToStr(Low(EBankLocation)).Replace('_', ' ').After('.').Capitalize());
+    LocationCombobox.ItemIndex := 0;
+
+    MonsterComboBox := TLazComboBox.CreateEx(tab, 'Monster:', 'Monster to Fight', 20, 160, 200);
+    for Low(EMonster) to High(EMonster) do
+      MonsterComboBox.Items.Add(ToStr(Low(EMonster)).Replace('_', ' ').After('.').Capitalize());
+    MonsterComboBox.ItemIndex := 0;
+
+    RunTimeSpinner := TLazSpinEdit.CreateEx(tab, 'Max Run Time (Hours)', 'how long you want this to run for', 20, 220, 200);
+    RunTimeSpinner.Value := 6;
+    RunTimeSpinner.MinValue := 0;
+    RunTimeSpinner.MaxValue := 30;
+    RunTimeSpinner.Increment := 1;
+    RunTimeSpinner.ValueEmpty := False;
+
+    LootEnCheckBox := TLazCheckBox.CreateEx(tab, 'Enable Looting?', 'Check this box if you want to loot drops', 20, 280, 200);
+    LootEnCheckBox.SetChecked(True);
+
+    BuryEnBox := TLazCheckBox.CreateEx(tab, 'Enable Bone Burying?', 'Check Looting and include Bones in the loot list', 20, 340, 200);
+    BuryEnBox.SetChecked(True);
+
+    LootListBox := TLazEdit.CreateEx(tab, 'Loot List', 'Type names of items you want to loot seperated by a comma', 20, 400, 200);
+    LootListBox.Text := 'Cowhide,Bones';
+
+    self.CreateAntibanTab();
+    self.Run();
+  end;
+
+ begin
+
+ form.init();
+ MyCombat.run();
+
+ end.
+
+
+
