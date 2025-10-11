@@ -361,14 +361,16 @@ begin
   if Map.Position.AnyInRange(self.MonsterEntity.Coordinates,50) then
     begin
       repeat
-        Map.Walker.WebWalk([8608, 37178],1,0); // just south of cow field gate
+        Map.Walker.WebWalk([8608, 37178],5,0.5); // just south of cow field gate
       until Map.Position.InRange([8608, 37178],4);
     end;
 
   if not Map.Position.AnyInRange(Self.BankObject.Coordinates,100) then
     Begin
       repeat
-        self.StaircaseObject.WalkInteract(['Top']);
+        Map.Walker.WebWalk([8729, 37590],5,0.5);
+        Biometrics.sleep(500,1500);
+        self.StaircaseObject.Interact(['Top']);
         SleepUntil(Map.Position.AnyInRange(self.BankObject.Coordinates,100),300,20000);
       until Map.Position.AnyInRange(Self.BankObject.Coordinates,100);
     end;
@@ -402,7 +404,6 @@ end;
 procedure TCombat.OpenBank();
 begin
   Bank.Open(self.bankObject);
-  //self.BankObject.Click();
   sleepuntil(Bank.IsOpen(),500,20000);
 
   Biometrics.sleep(1000,5000);
@@ -412,7 +413,6 @@ procedure TCombat.CloseBank();
 begin
   Bank.Close(50);
   Biometrics.sleep(500,3000);
-
 end;
 
 procedure TCombat.DepositAll();
@@ -427,7 +427,6 @@ begin
 
   if not RSClient.IsLoggedIn() then
     Exit(ECombatState.LOGIN);
-
 
   if self.Seeking then
     Exit(ECombatState.SEEK);
@@ -496,7 +495,7 @@ end;
 
 
 var
-  MyCombat: Tcombat;
+  MyCombat: TCombat;
   form: TScriptForm;
 
   LocationComboBox, MonsterComboBox: TLazComboBox;
